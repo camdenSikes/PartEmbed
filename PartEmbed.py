@@ -99,7 +99,7 @@ def saveEmbeddingMatrix(G,filename):
     embeddings = np.ndarray(shape=(len(G.nodes), len(G.nodes[0]['embed'])), dtype=np.float32)
     for i in G.nodes:
         embeddings[i] = G.nodes[i]['embed']
-    np.save(filename)
+    np.save(filename,embeddings)
 
 
 

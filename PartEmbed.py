@@ -96,7 +96,7 @@ def getAdjLists(G):
 
 #Given embedded graph, save a numpy matrix of the embeddings
 def saveEmbeddingMatrix(G,filename):
-    embeddings = np.ndarray(np.shape(len(G.nodes), len(G.nodes[0]['embed'])), dtype=np.float32)
+    embeddings = np.ndarray(shape=(len(G.nodes), len(G.nodes[0]['embed'])), dtype=np.float32)
     for i in G.nodes:
         embeddings[i] = G.nodes[i]['embed']
     np.save(filename)

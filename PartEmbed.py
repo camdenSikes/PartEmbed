@@ -2,7 +2,7 @@ import networkx
 import pymetis
 import math
 import numpy as np
-import node2vec.src.node2vec as node2vec
+import node2vec
 from gensim.models import Word2Vec
 from scipy.io import loadmat
 import scipy.sparse
@@ -10,12 +10,10 @@ import scipy.sparse
 # Given a networkx graph, embed the nodes of the graph
 def partEmbed(G):
     #TODO: how do we decide this value?
-    delta = 1*(1/len(G.nodes))
+    delta = math.sqrt(len(G.nodes))*(1/len(G.nodes))
     k = math.ceil(math.sqrt(len(G.nodes)))
     adjncy,xadj,vweights,eweights = getAdjLists(G)
-    cutcount, part_vert = pymetis.part_graph(k,xadj=xadj,adjncy=adjncy,vweights=vweights,eweights=eweights)
-    #TODO: cutcount is much higher than it should be
-    #assert cutcount == k
+    cutcount, part_vert = pymetis.part_graph(k,xadj=xadj,adjncy=adjncy)
     #generate abstract graph
     A = scipy.sparse.lil_array((k,k),dtype=np.int32)
     for i, nbrsdict in G.adjacency():
@@ -66,12 +64,8 @@ def computeNode2Vec(AG):
     iter = 1
     workers = 8
 
-    G = node2vec.Graph(AG, False, returnHyperparam, inoutHyperparam)
-    G.preprocess_transition_probs()
-    walks = G.simulate_walks(num_walks, walk_length)
-    #Had to add list because of python 2/3 shenanigans
-    walks = [list(map(str, walk)) for walk in walks]
-    model = Word2Vec(walks, vector_size=dimensions, window=window_size, min_count=0, sg=1, workers=workers, epochs=iter)
+    n2v = node2vec.Node2Vec(AG, dimensions=dimensions, walk_length=walk_length, num_walks=num_walks, workers=workers,p = returnHyperparam, q = inoutHyperparam)
+    model = n2v.fit(window = window_size, min_count=1, batch_words=4, epochs = iter)
     return model.wv
 
 
@@ -108,10 +102,16 @@ def saveEmbeddingMatrix(G,filename):
 if __name__ == "__main__":
     G = networkx.gnp_random_graph(10,0.2,seed=27)
 
-    mat_variables = loadmat("citeseer.mat")
+    mat_variables = loadmat("blogcatalog.mat")
     mat_matrix = mat_variables["network"]
     G = networkx.Graph(mat_matrix)
 
-    G = partEmbed(G)
-    print(G)
-    saveEmbeddingMatrix(G,"partEmbedCiteseer.npy")
+    #If I ever need to compute pure node2vec
+    nodevecs = computeNode2Vec(G)
+    embeddings = np.ndarray(shape=(len(G.nodes), len(nodevecs[0])), dtype=np.float32)
+    for i in G.nodes:
+        embeddings[i] = nodevecs[i]
+    np.save("node2vecCiteseer.npy",embeddings)
+
+    #G = partEmbed(G)
+    #saveEmbeddingMatrix(G,"partEmbedCiteseer.npy")

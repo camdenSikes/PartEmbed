@@ -2,6 +2,4 @@ numpy
 networkx
 pymetis
 gensim
-#checkout node2vec reference implementation into this folder
-#at https://github.com/aditya-grover/node2vec
-#but it is python 2 so you have to replace 2 prints statments in node2vec.py
+node2vec

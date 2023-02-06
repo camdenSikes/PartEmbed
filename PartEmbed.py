@@ -4,6 +4,7 @@ import math
 import numpy as np
 import node2vec.src.node2vec as node2vec
 from gensim.models import Word2Vec
+from scipy import loadmat
 import scipy.sparse
 
 # Given a networkx graph, embed the nodes of the graph
@@ -92,10 +93,24 @@ def getAdjLists(G):
 
     return (adjncy,xadj,vweights,eweights)
 
+#Given embedded graph, save a numpy matrix of the embeddings
+def saveEmbeddingMatrix(G,filename):
+    embeddings = np.ndarray(np.shape(len(G.nodes), len(G.nodes[0]['embed'])), dtype=np.float32)
+    for i in G.nodes:
+        embeddings[i] = G.nodes[i]['embed']
+    np.save(filename)
+
+
 
 
 
 if __name__ == "__main__":
     G = networkx.gnp_random_graph(10,0.2,seed=27)
+
+    mat_variables = loadmat("/home/sikes012/Documents/Coarsening/HARP/example_graphs/citeseer/citeseer.mat")
+    mat_matrix = mat_variables["network"]
+    G = networkx.Graph(mat_matrix)
+
     G = partEmbed(G)
     print(G)
+    saveEmbeddingMatrix(G,"partEmbedCiteseer.npy")

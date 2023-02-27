@@ -1,4 +1,5 @@
 import networkx
+from pygsp import graphs as pygraphs
 import pymetis
 import math
 import numpy as np
@@ -6,6 +7,7 @@ import node2vec
 from gensim.models import Word2Vec
 from scipy.io import loadmat
 import scipy.sparse
+import g_coarsening
 
 # Given a networkx graph, embed the nodes of the graph
 def partEmbed(G):
@@ -44,27 +46,46 @@ def propagate(G,deltaLimit):
             for j, eattr in nbrsdict.items():
                 neighborSum += G.nodes[j]['embed']
                 numNeighbors += 1
-            newVecs[i] = 0.5*(G.nodes[i]['embed'] + neighborSum/numNeighbors)
+            if(numNeighbors == 0):
+                newVecs[i] = G.nodes[i]['embed']
+            else:
+                newVecs[i] = 0.5*(G.nodes[i]['embed'] + neighborSum/numNeighbors)
             delta += np.linalg.norm(G.nodes[i]['embed'] - newVecs[i])
         for i in G.nodes():
             G.nodes[i]['embed'] = newVecs[i]
         delta = delta/len(G.nodes())
     return
 
+def propagateIter(G):
+    shape = np.shape(G.nodes[0]['embed'])
+    newVecs = list(G.nodes())
+    for i, nbrsdict in G.adjacency():
+        neighborSum = np.zeros(shape)
+        numNeighbors = 0
+        for j, eattr in nbrsdict.items():
+            neighborSum += G.nodes[j]['embed']
+            numNeighbors += 1
+        if(numNeighbors == 0):
+            newVecs[i] = G.nodes[i]['embed']
+        else:
+            newVecs[i] = 0.5*(G.nodes[i]['embed'] + neighborSum/numNeighbors)
+    for i in G.nodes():
+        G.nodes[i]['embed'] = newVecs[i]
 
-#compute the node2vec embeddings of a graph, using ref implementation
+
+#compute the node2vec embeddings of a graph
 def computeNode2Vec(AG):
     #TODO: deal with hyperparameters, currently just doing the default
-    returnHyperparam = 1
-    inoutHyperparam = 1
-    num_walks = 10
-    walk_length = 80
-    window_size = 10
+    p = 0.25
+    q = 0.25
+    num_walks = 16
+    walk_length = 100
+    window_size = 16
     dimensions = 128
     iter = 1
     workers = 8
 
-    n2v = node2vec.Node2Vec(AG, dimensions=dimensions, walk_length=walk_length, num_walks=num_walks, workers=workers,p = returnHyperparam, q = inoutHyperparam)
+    n2v = node2vec.Node2Vec(AG, dimensions=dimensions, walk_length=walk_length, num_walks=num_walks, workers=workers,p = p, q = q)
     model = n2v.fit(window = window_size, min_count=1, batch_words=4, epochs = iter)
     return model.wv
 
@@ -96,22 +117,64 @@ def saveEmbeddingMatrix(G,filename):
     np.save(filename,embeddings)
 
 
+def coarsenEmbed(G):
+    pyG = pygraphs.Graph(networkx.adjacency_matrix(G))
+    C,Gc,Call,Gall = g_coarsening.coarsen(pyG,r=0.9,method='heavy_edge',max_levels=50)
+    Gcnx = networkx.Graph(Gc.W.todense())
+    nodevecs = computeNode2Vec(Gcnx)
+    embedarray = np.zeros((np.shape(C)[0],len(nodevecs[0])))
+    for i in range(len(embedarray)):
+        embedarray[i] = nodevecs[i]
+    bigembedarray = np.transpose(C) * embedarray
+    #Add embeddings from abstract graph to original
+    for node in G.nodes:
+        G.nodes[node]['embed'] = bigembedarray[node]
+    return G
+
+def coarsenEmbedRec(G):
+    pyG = pygraphs.Graph(networkx.adjacency_matrix(G))
+    C,Gc,Call,Gall = g_coarsening.coarsen(pyG,r=0.9,method='heavy_edge',max_levels=2)
+    Gcnx = networkx.Graph(Gc.W.todense())
+    nodevecs = computeNode2Vec(Gcnx)
+    embedarray = np.zeros((np.shape(C)[0],len(nodevecs[0])))
+    for i in range(len(embedarray)):
+        embedarray[i] = nodevecs[i]
+
+    for i in range(len(Call)):
+        ind = len(Call) - 1 - i
+        embedarray = np.transpose(Call[ind]) * embedarray
+        #TODO: This is inefficient, can improve by not swapping each time
+        tempGraph = networkx.Graph(Gall[ind].W.todense())
+        for node in tempGraph.nodes:
+            tempGraph.nodes[node]['embed'] = embedarray[node]
+        #embedding propagation
+        #TODO: how do we decide this value?
+        delta = math.sqrt(len(tempGraph.nodes))*(1/len(tempGraph.nodes))
+        #propagateIter(tempGraph)
+        propagate(tempGraph,delta)
+        for node in tempGraph.nodes:
+            embedarray[node] = tempGraph.nodes[node]['embed']
+    return tempGraph
+
+
+
 
 
 
 if __name__ == "__main__":
-    G = networkx.gnp_random_graph(10,0.2,seed=27)
+    G = networkx.gnp_random_graph(100,0.2,seed=27)
 
-    mat_variables = loadmat("blogcatalog.mat")
+    mat_variables = loadmat("citeseer.mat")
     mat_matrix = mat_variables["network"]
     G = networkx.Graph(mat_matrix)
 
     #If I ever need to compute pure node2vec
-    nodevecs = computeNode2Vec(G)
-    embeddings = np.ndarray(shape=(len(G.nodes), len(nodevecs[0])), dtype=np.float32)
-    for i in G.nodes:
-        embeddings[i] = nodevecs[i]
-    np.save("node2vecCiteseer.npy",embeddings)
+    #nodevecs = computeNode2Vec(G)
+    #embeddings = np.ndarray(shape=(len(G.nodes), len(nodevecs[0])), dtype=np.float32)
+    #for i in G.nodes:
+    #    embeddings[i] = nodevecs[i]
+    #np.save("node2vecCiteseer.npy",embeddings)
 
     #G = partEmbed(G)
-    #saveEmbeddingMatrix(G,"partEmbedCiteseer.npy")
+    G = coarsenEmbedRec(G)
+    saveEmbeddingMatrix(G,"partEmbedCiteseer.npy")
